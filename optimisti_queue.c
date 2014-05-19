@@ -3,47 +3,89 @@
 #include "timers_lib.h"
 
 
+struct pointer_t{
+    unsigned long long both;
+};
+
 struct node_t{
     int value;
-    struct node_t * next;
-    struct node_t * prev;
+    struct pointer_t  next;
+    struct pointer_t  prev;
 };
 
 
 struct queue_t{
-    struct node_t * Tail;
-    struct node_t * Head;
+    struct pointer_t Tail;
+    struct pointer_t Head;
 };
 
 
 int DUMMY_VAL = 101;
 
+unsigned long long get_count(unsigned long long a){
+
+    unsigned long long b = a >>48;
+    return b;
+}
+
+unsigned long long get_pointer(unsigned long long a){
+    unsigned long long b = a << 16;
+    b= b >>16;
+    return b;
+}
+
+unsigned long long set_count(unsigned long long  a, unsigned long long count){
+    unsigned long long count_temp =  count << 48;
+    unsigned long long b = get_pointer(a);
+    b = b | count_temp;
+    return b;
+}
+
+unsigned long long set_pointer(unsigned long long a, unsigned long long ptr){
+    unsigned long long b = 0;
+    unsigned long long c = get_count(a);
+    b = set_count(b,c);
+    ptr = get_pointer(ptr);
+    b= b | ptr;
+    return b;
+}
+
+unsigned long long set_both(unsigned long long a, unsigned long long ptr, unsigned long long count){
+    a=set_pointer(a,ptr);
+    a=set_count(a,count);
+    return a;
+}
+
+
 void initialize(struct queue_t * Q){
     struct node_t * node = (struct node_t * ) malloc(sizeof(struct node_t));
-    node->next =  NULL;
-    node->prev =  NULL;
+    //node->next =  NULL;
+    //node->prev =  NULL;
     node->value =  DUMMY_VAL;
-    Q->Head  =  node;
-    Q->Tail =  node;
+    Q->Head.both  =  set_both(Q->Head.both,node,0);
+    Q->Tail.both =  set_both(Q->Tail.both,node,0);
 }
 
 
 void enqueue(struct queue_t * Q,int val){
     
-    struct node_t * tail;
+    struct pointer_t  tail;
     struct node_t * nd = (struct node_t *) malloc(sizeof(struct node_t));
     nd->value = val;
     while (1){
         tail = Q->Tail;
-        nd->next =  tail;
-        if (__sync_bool_compare_and_swap(&Q->Tail,tail,nd)){
-            tail->prev = nd;
+        nd->next.both = set_both(nd->next.both,tail.both,get_count(tail.both)+1);
+        struct node_t * new_to_set = set_both(new_to_set,nd,get_count(tail.both)+1);
+        unsigned long long temp =  Q->Tail.both;
+        if (__sync_bool_compare_and_swap(&temp,tail.both,new_to_set)){
+            struct pointer_t prev =  ((struct node_t *)get_pointer(tail.both))->prev;
+            prev.both = set_both(prev.both,nd,get_count(tail.both));
             break;
         }
     }
 
 }
-
+/*
 int dequeue(struct queue_t * Q,int * p_val){
     
     struct node_t * tail;
@@ -110,7 +152,7 @@ void printqueue(struct queue_t * Q){
 
 }
 
-
+*/
 int main(int argc,char * argv[]){
 
     int res,val=0;
@@ -120,13 +162,15 @@ int main(int argc,char * argv[]){
     enqueue(Q,5);
     enqueue(Q,8);
     enqueue(Q,12);
-    res=dequeue(Q,&val);
-    res=dequeue(Q,&val);
+    //res=dequeue(Q,&val);
+    //res=dequeue(Q,&val);
     //if (res) printf("  dequeued %d \n",val);
     enqueue(Q,7);
-    //printf(" %d \n",Q->Head->value);
+    printf(" %d \n",((struct node_t *)get_pointer(Q->Head.both))->value);
+    struct pointer_t prev =((struct node_t *)get_pointer(Q->Head.both))->prev;
+    printf(" %d \n",((struct node_t *)get_pointer(prev.both))->value);
     //printf(" %d \n",Q->Head->prev->value);
     //printf(" %d \n",Q->Head->prev->prev->value);
-    printqueue(Q);
+    //printqueue(Q);
     return 1;
 }
