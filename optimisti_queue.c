@@ -87,6 +87,26 @@ void enqueue(struct queue_t * Q,int val){
 
 }
 
+void fixList(struct queue_t * Q,struct pointer_t tail,struct pointer_t head){
+    
+    struct pointer_t currNode;
+    struct pointer_t currNodeNext;
+    struct pointer_t nextNodePrev;
+
+    currNode =  tail;
+    while((head.both == Q->Head.both)&&(currNode.both == tail.both)){
+        currNodeNext = ((struct node_t *)get_pointer(currNode.both))->next;
+        if( get_count(currNodeNext.both)!=get_count(currNode.both)){
+            return;
+        }
+        nextNodePrev = ((struct node_t *)get_pointer(currNodeNext.both))->prev;
+        if((get_pointer(nextNodePrev.both)!=get_pointer(currNode.both))||(get_count(nextNodePrev.both)!=(get_count(currNode.both) -1))){
+            ((struct node_t *)get_pointer(currNodeNext.both))->prev.both = set_both(((struct node_t *)get_pointer(currNodeNext.both))->prev.both,currNode.both,get_count(currNode.both)-1);
+        }
+        currNode.both = set_both(currNode.both,currNodeNext.both,get_count(currNode.both) -1);
+    }
+}
+
 int dequeue(struct queue_t * Q,int * p_val){
     
     struct pointer_t  tail;
@@ -103,13 +123,16 @@ int dequeue(struct queue_t * Q,int * p_val){
         if (head.both == Q->Head.both){
             if (val!=DUMMY_VAL){
                 if (tail.both!=head.both){
-                    //TODO: add tag check and fix list
+                    if (get_count(firstNodePrev.both)!=get_count(head.both)){
+                        fixList(Q,tail,head);
+                        continue;
+                    }
                 }
 
                 else{
                     struct node_t * nd_dummy = (struct node_t * ) malloc(sizeof(struct node_t));
                     nd_dummy->value =  DUMMY_VAL;
-                    nd_dummy->next.both = tail.both;
+                    nd_dummy->next.both = set_both(nd_dummy->next.both,tail.both,get_count(tail.both)+1);
                     new_to_set = set_both(new_to_set,nd_dummy,get_count(tail.both)+1);
                     if (__sync_bool_compare_and_swap(&(Q->Tail.both),tail.both,new_to_set)){
                         ((struct node_t *)get_pointer(head.both))->prev.both =set_both(((struct node_t *)get_pointer(head.both))->prev.both,nd_dummy,get_count(tail.both));
@@ -128,6 +151,10 @@ int dequeue(struct queue_t * Q,int * p_val){
                 if (tail.both == head.both) return 0;
                 else {
                     //TODO: add tag check and call fixlist
+                    if(get_count(firstNodePrev.both) != get_count(head.both)){
+                        fixList(Q,tail,head);
+                        continue;
+                    }
                     new_to_set = set_both(new_to_set,firstNodePrev.both,get_count(head.both)+1);
                     int temp = __sync_bool_compare_and_swap(&(Q->Head.both),head.both,new_to_set);
                 }
@@ -138,33 +165,33 @@ int dequeue(struct queue_t * Q,int * p_val){
 
             
 }
-/*
+
 void printqueue(struct queue_t * Q){
 
-    struct node_t * curr ;
-    struct node_t * next ;
-    struct node_t * prev;
+    struct pointer_t  curr ;
+    struct pointer_t  prev;
     curr = Q->Head;
-    next = Q->Head->next;
-    prev = Q->Head->prev;
-    while (curr != Q->Tail){
-        printf("%d ",curr->value);
+    prev = ((struct node_t *)get_pointer(Q->Head.both))->prev;
+    while (get_pointer(curr.both) != get_pointer(Q->Tail.both)){
+        printf("%d \n",((struct node_t *)get_pointer(curr.both))->value);
         curr = prev;
-        prev = curr ->prev;
+        prev = ((struct node_t *)get_pointer(curr.both)) ->prev;
     }
-    printf("%d ",curr->value);
+    printf("%d ",((struct node_t *)get_pointer(curr.both))->value);
     printf("\n");
 
 }
-*/
+
 
 int main(int argc,char * argv[]){
 
-    int res,val=0;
+    int res,i,j,num_threads,count,val=0;
     struct queue_t * Q = (struct queue_t *) malloc(sizeof(struct queue_t));
     initialize(Q);
 
-    enqueue(Q,5);
+    num_threads = atoi(argv[1]);
+    count = atoi(argv[2]);
+    /*enqueue(Q,5);
     res=dequeue(Q,&val);
     if (res) printf("  dequeued %d \n",val);
     enqueue(Q,8);
@@ -185,6 +212,32 @@ int main(int argc,char * argv[]){
     printf(" %d \n",((struct node_t *)get_pointer(prev_2.both))->value);
     //printf(" %d \n",Q->Head->prev->value);
     //printf(" %d \n",Q->Head->prev->prev->value);
+    
+
+    enqueue(Q,5);
+    enqueue(Q,8);
+    res= dequeue(Q,&val);
+    if (res) printf("i dequeued %d \n",val);
+    enqueue(Q,7);
+    enqueue(Q,12);
+    enqueue(Q,22);
+    printqueue(Q);
+*/
+    timer_tt * timer=timer_init();
+    timer_start(timer);
+    #pragma omp parallel for num_threads(num_threads) shared(Q) private(res,val,i,j)
+    for(i=0;i<num_threads;i++){
+         for (j=0;j<count/num_threads;j++){
+                enqueue(Q,i);
+                res = dequeue(Q,&val);
+                //if (res) printf("thread %d  dequeued --> %d\n",omp_get_thread_num(),val);
+         }
+    }
     //printqueue(Q);
+    timer_stop(timer);
+    double time_res = timer_report_sec(timer);
+    printf("num_threasd %d  enq-deqs total %d \n",num_threads,count);
+    printf("Total time  %lf \n",time_res);
+
     return 1;
 }
