@@ -20,7 +20,7 @@ struct queue_t{
 };
 
 
-int DUMMY_VAL = 101;
+int DUMMY_VAL = 101;//TODO: change this
 
 unsigned long long get_count(unsigned long long a){
 
@@ -94,7 +94,7 @@ void fixList(struct queue_t * Q,struct pointer_t tail,struct pointer_t head){
     struct pointer_t nextNodePrev;
 
     currNode =  tail;
-    while((head.both == Q->Head.both)&&(currNode.both == tail.both)){
+    while((head.both == Q->Head.both)&&(currNode.both != head.both)){
         currNodeNext = ((struct node_t *)get_pointer(currNode.both))->next;
         if( get_count(currNodeNext.both)!=get_count(currNode.both)){
             return;
@@ -148,7 +148,7 @@ int dequeue(struct queue_t * Q,int * p_val){
                 }
             }
             else{
-                if (tail.both == head.both) return 0;
+                if (get_pointer(tail.both) == get_pointer(head.both)) return 0;
                 else {
                     //TODO: add tag check and call fixlist
                     if(get_count(firstNodePrev.both) != get_count(head.both)){
@@ -233,8 +233,8 @@ int main(int argc,char * argv[]){
                 //if (res) printf("thread %d  dequeued --> %d\n",omp_get_thread_num(),val);
          }
     }
-    //printqueue(Q);
     timer_stop(timer);
+    printqueue(Q);
     double time_res = timer_report_sec(timer);
     printf("num_threasd %d  enq-deqs total %d \n",num_threads,count);
     printf("Total time  %lf \n",time_res);
