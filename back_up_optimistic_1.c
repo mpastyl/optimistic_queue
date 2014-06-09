@@ -50,8 +50,7 @@ __int128 set_pointer(__int128 a, __int128 ptr){
     return b;
 }
 // sets a's pointer to ptr and a's counter to count
-__int128 set_both(__int128 ptr, __int128 count){
-    __int128 a=0;
+__int128 set_both(__int128 a, __int128 ptr, __int128 count){
     a=set_pointer(a,(__int128 )ptr);
     a=set_count(a,count);
     return a;
@@ -63,8 +62,8 @@ void initialize(struct queue_t * Q){
     //node->next =  NULL;
     //node->prev =  NULL;
     node->value =  DUMMY_VAL;
-    Q->Head.both  =  set_both((__int128) node,0);
-    Q->Tail.both =  set_both((__int128) node,0);
+    Q->Head.both  =  set_both(Q->Head.both,(__int128) node,0);
+    Q->Tail.both =  set_both(Q->Tail.both,(__int128) node,0);
 }
 
 
@@ -76,14 +75,14 @@ void enqueue(struct queue_t * Q,int val){
     while (1){
         tail = Q->Tail;
         //set next of new node
-        nd->next.both = set_both(tail.both, get_count(tail.both)+(__int128)1);
+        nd->next.both = set_both(nd->next.both, tail.both, get_count(tail.both)+(                                                                      __int128)1);
         //new to set is the new value to set via CAS
-        __int128 new_to_set = set_both((__int128)nd, get_count(tail.both)+(__int128)1);
+        __int128 new_to_set = set_both(new_to_set,(__int128)nd, get_count(tail.both)+(__int128)1);
         if(__sync_bool_compare_and_swap(&(Q->Tail.both), tail.both, new_to_set)){
             // if cas is succesful we update prev without atomic
             //struct pointer_t prev =  get_pointer(tail.both)->prev;
             //prev.both = set_both(prev.both,(__int128)nd, get_count(tail.both));
-            (get_pointer(tail.both))->prev.both = set_both((__int128)nd, get_count(tail.both));
+            (get_pointer(tail.both))->prev.both = set_both(get_pointer(tail.both)->prev, (__int128)nd, get_count(tail.both));
             break;
         }
     }
@@ -97,20 +96,16 @@ void fixList(struct queue_t * Q,struct pointer_t tail,struct pointer_t head){
     struct pointer_t nextNodePrev;
 
     currNode =  tail;
-    //from tail to head
     while((head.both == Q->Head.both)&&(currNode.both != head.both)){
         currNodeNext = get_pointer(currNode.both)->next;
         if( get_count(currNodeNext.both)!=get_count(currNode.both)){
-            // ABA occured: return
             return;
         }
         nextNodePrev = (get_pointer(currNodeNext.both))->prev;
-        //check if pointer or count are not equal . If they arent, fixthem 
         if((get_pointer(nextNodePrev.both)!=get_pointer(currNode.both))||(get_count(nextNodePrev.both)!=(get_count(currNode.both) -(__int128)1))){
-            (get_pointer(currNodeNext.both))->prev.both = set_both(currNode.both,get_count(currNode.both)-(__int128)1);
+            (get_pointer(currNodeNext.both))->prev.both = set_both((get_pointer(currNodeNext.both))->prev.both,currNode.both,get_count(currNode.both)-(__int128)1);
         }
-        //next node
-        currNode.both = set_both(currNodeNext.both,get_count(currNode.both) -(__int128)1);
+        currNode.both = set_both(currNode.both,currNodeNext.both,get_count(currNode.both) -(__int128)1);
     }
 }
 
@@ -130,7 +125,6 @@ int dequeue(struct queue_t * Q,int * p_val){
         if (head.both == Q->Head.both){
             if (val!=DUMMY_VAL){
                 if (tail.both!=head.both){
-                    //if tags are not equal we need to call fix_list
                     if (get_count(firstNodePrev.both)!=get_count(head.both)){
                         fixList(Q,tail,head);
                         continue;
@@ -138,19 +132,17 @@ int dequeue(struct queue_t * Q,int * p_val){
                 }
 
                 else{
-                    //only one node in the queue: need to create a new dummy and                     //enqueue it
                     struct node_t * nd_dummy = (struct node_t * ) malloc(sizeof(struct node_t));
                     nd_dummy->value =  DUMMY_VAL;
-                    nd_dummy->next.both = set_both(tail.both,get_count(tail.both)                                                                   +(__int128)1);
-                    new_to_set = set_both((__int128)nd_dummy,get_count(tail.both)                                                                   +(__int128)1);
-                    if (__sync_bool_compare_and_swap(&(Q->Tail.both),tail.both,                                                                     new_to_set)){
-                        (get_pointer(head.both))->prev.both =set_both(                                                  (__int128)nd_dummy,get_count(tail.both));
+                    nd_dummy->next.both = set_both(nd_dummy->next.both,tail.both,get_count(tail.both)+(__int128)1);
+                    new_to_set = set_both(new_to_set,(__int128)nd_dummy,get_count(tail.both)+(__int128)1);
+                    if (__sync_bool_compare_and_swap(&(Q->Tail.both),tail.both,new_to_set)){
+                        (get_pointer(head.both))->prev.both =set_both((get_pointer(head.both))->prev.both,(__int128)nd_dummy,get_count(tail.both));
                     }
                     else free(nd_dummy);
                     continue;
                 }
-                //normal dequeue case
-                new_to_set =  set_both(firstNodePrev.both,get_count(head.both)+(__int128)1);
+                new_to_set =  set_both(new_to_set,firstNodePrev.both,get_count(head.both)+(__int128)1);
                 if(__sync_bool_compare_and_swap(&(Q->Head.both),head.both,new_to_set)){
                     free(get_pointer(head.both));
                     *p_val = val;
@@ -158,15 +150,14 @@ int dequeue(struct queue_t * Q,int * p_val){
                 }
             }
             else{
-                // if both head and tail point to dummy , queue is empty
                 if (get_pointer(tail.both) == get_pointer(head.both)) return 0;
                 else {
-                    //need to spik dummy
+                    //TODO: add tag check and call fixlist
                     if(get_count(firstNodePrev.both) != get_count(head.both)){
                         fixList(Q,tail,head);
                         continue;
                     }
-                    new_to_set = set_both(firstNodePrev.both,get_count(head.both)+(__int128)1);
+                    new_to_set = set_both(new_to_set,firstNodePrev.both,get_count(head.both)+(__int128)1);
                     int temp = __sync_bool_compare_and_swap(&(Q->Head.both),head.both,new_to_set);
                 }
             }
