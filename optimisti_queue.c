@@ -28,19 +28,19 @@ __int128 get_count(__int128 a){
     return b;
 }
 
-struct node_t * get_pointer(__int128 a){
+__int128 get_pointer(__int128 a){
     __int128 b = a << 64;
     b= b >>64;
-    return ((struct node_t *) b);
+    return b;
 }
-//get the counter out of a 128 bit integer
+
 __int128 set_count(__int128  a, __int128 count){
     __int128 count_temp =  count << 64;
     __int128 b = get_pointer(a);
     b = b | count_temp;
     return b;
 }
-//get the pointer out of a 128bit integer
+
 __int128 set_pointer(__int128 a, __int128 ptr){
     __int128 b = 0;
     __int128 c = get_count(a);
@@ -49,10 +49,9 @@ __int128 set_pointer(__int128 a, __int128 ptr){
     b= b | ptr;
     return b;
 }
-// sets a's pointer to ptr and a's counter to count
-__int128 set_both(__int128 ptr, __int128 count){
-    __int128 a=0;
-    a=set_pointer(a,(__int128 )ptr);
+
+__int128 set_both(__int128 a, __int128 ptr, __int128 count){
+    a=set_pointer(a,ptr);
     a=set_count(a,count);
     return a;
 }
@@ -63,8 +62,8 @@ void initialize(struct queue_t * Q){
     //node->next =  NULL;
     //node->prev =  NULL;
     node->value =  DUMMY_VAL;
-    Q->Head.both  =  set_both((__int128) node,0);
-    Q->Tail.both =  set_both((__int128) node,0);
+    Q->Head.both  =  set_both(Q->Head.both,node,0);
+    Q->Tail.both =  set_both(Q->Tail.both,node,0);
 }
 
 
@@ -72,18 +71,17 @@ void enqueue(struct queue_t * Q,int val){
     
     struct pointer_t  tail;
     struct node_t * nd = (struct node_t *) malloc(sizeof(struct node_t));
+    //printf("%p \n",&nd);
     nd->value = val;
     while (1){
         tail = Q->Tail;
-        //set next of new node
-        nd->next.both = set_both(tail.both, get_count(tail.both)+(__int128)1);
-        //new to set is the new value to set via CAS
-        __int128 new_to_set = set_both((__int128)nd, get_count(tail.both)+(__int128)1);
-        if(__sync_bool_compare_and_swap(&(Q->Tail.both), tail.both, new_to_set)){
-            // if cas is succesful we update prev without atomic
-            //struct pointer_t prev =  get_pointer(tail.both)->prev;
-            //prev.both = set_both(prev.both,(__int128)nd, get_count(tail.both));
-            (get_pointer(tail.both))->prev.both = set_both((__int128)nd, get_count(tail.both));
+        nd->next.both = set_both(nd->next.both,tail.both,get_count(tail.both)+(__int128)1);
+        __int128 new_to_set = set_both(new_to_set,nd,get_count(tail.both)+(__int128)1);
+        //__int128 temp =  Q->Tail.both;
+        if (__sync_bool_compare_and_swap(&(Q->Tail.both),tail.both,new_to_set)){
+            struct pointer_t prev =  ((struct node_t *)get_pointer(tail.both))->prev;
+            prev.both = set_both(prev.both,nd,get_count(tail.both));
+            ((struct node_t * ) get_pointer(tail.both))->prev.both = prev.both;
             break;
         }
     }
@@ -97,20 +95,16 @@ void fixList(struct queue_t * Q,struct pointer_t tail,struct pointer_t head){
     struct pointer_t nextNodePrev;
 
     currNode =  tail;
-    //from tail to head
     while((head.both == Q->Head.both)&&(currNode.both != head.both)){
-        currNodeNext = get_pointer(currNode.both)->next;
+        currNodeNext = ((struct node_t *)get_pointer(currNode.both))->next;
         if( get_count(currNodeNext.both)!=get_count(currNode.both)){
-            // ABA occured: return
             return;
         }
-        nextNodePrev = (get_pointer(currNodeNext.both))->prev;
-        //check if pointer or count are not equal . If they arent, fixthem 
+        nextNodePrev = ((struct node_t *)get_pointer(currNodeNext.both))->prev;
         if((get_pointer(nextNodePrev.both)!=get_pointer(currNode.both))||(get_count(nextNodePrev.both)!=(get_count(currNode.both) -(__int128)1))){
-            (get_pointer(currNodeNext.both))->prev.both = set_both(currNode.both,get_count(currNode.both)-(__int128)1);
+            ((struct node_t *)get_pointer(currNodeNext.both))->prev.both = set_both(((struct node_t *)get_pointer(currNodeNext.both))->prev.both,currNode.both,get_count(currNode.both)-(__int128)1);
         }
-        //next node
-        currNode.both = set_both(currNodeNext.both,get_count(currNode.both) -(__int128)1);
+        currNode.both = set_both(currNode.both,currNodeNext.both,get_count(currNode.both) -(__int128)1);
     }
 }
 
@@ -125,12 +119,11 @@ int dequeue(struct queue_t * Q,int * p_val){
 
         head = Q->Head;
         tail = Q->Tail;
-        firstNodePrev = (get_pointer(head.both))->prev;
-        val =  (get_pointer(head.both))-> value;
+        firstNodePrev = ((struct node_t *)get_pointer(head.both))->prev;
+        val =  ((struct node_t * )get_pointer(head.both))-> value;
         if (head.both == Q->Head.both){
             if (val!=DUMMY_VAL){
                 if (tail.both!=head.both){
-                    //if tags are not equal we need to call fix_list
                     if (get_count(firstNodePrev.both)!=get_count(head.both)){
                         fixList(Q,tail,head);
                         continue;
@@ -138,35 +131,32 @@ int dequeue(struct queue_t * Q,int * p_val){
                 }
 
                 else{
-                    //only one node in the queue: need to create a new dummy and                     //enqueue it
                     struct node_t * nd_dummy = (struct node_t * ) malloc(sizeof(struct node_t));
                     nd_dummy->value =  DUMMY_VAL;
-                    nd_dummy->next.both = set_both(tail.both,get_count(tail.both)                                                                   +(__int128)1);
-                    new_to_set = set_both((__int128)nd_dummy,get_count(tail.both)                                                                   +(__int128)1);
-                    if (__sync_bool_compare_and_swap(&(Q->Tail.both),tail.both,                                                                     new_to_set)){
-                        (get_pointer(head.both))->prev.both =set_both(                                                  (__int128)nd_dummy,get_count(tail.both));
+                    nd_dummy->next.both = set_both(nd_dummy->next.both,tail.both,get_count(tail.both)+(__int128)1);
+                    new_to_set = set_both(new_to_set,nd_dummy,get_count(tail.both)+(__int128)1);
+                    if (__sync_bool_compare_and_swap(&(Q->Tail.both),tail.both,new_to_set)){
+                        ((struct node_t *)get_pointer(head.both))->prev.both =set_both(((struct node_t *)get_pointer(head.both))->prev.both,nd_dummy,get_count(tail.both));
                     }
                     else free(nd_dummy);
                     continue;
                 }
-                //normal dequeue case
-                new_to_set =  set_both(firstNodePrev.both,get_count(head.both)+(__int128)1);
+                new_to_set =  set_both(new_to_set,firstNodePrev.both,get_count(head.both)+(__int128)1);
                 if(__sync_bool_compare_and_swap(&(Q->Head.both),head.both,new_to_set)){
-                    free(get_pointer(head.both));
+                    free((struct node_t *)get_pointer(head.both));
                     *p_val = val;
                     return 1;
                 }
             }
             else{
-                // if both head and tail point to dummy , queue is empty
                 if (get_pointer(tail.both) == get_pointer(head.both)) return 0;
                 else {
-                    //need to spik dummy
+                    //TODO: add tag check and call fixlist
                     if(get_count(firstNodePrev.both) != get_count(head.both)){
                         fixList(Q,tail,head);
                         continue;
                     }
-                    new_to_set = set_both(firstNodePrev.both,get_count(head.both)+(__int128)1);
+                    new_to_set = set_both(new_to_set,firstNodePrev.both,get_count(head.both)+(__int128)1);
                     int temp = __sync_bool_compare_and_swap(&(Q->Head.both),head.both,new_to_set);
                 }
             }
@@ -182,13 +172,13 @@ void printqueue(struct queue_t * Q){
     struct pointer_t  curr ;
     struct pointer_t  prev;
     curr = Q->Head;
-    prev = (get_pointer(Q->Head.both))->prev;
+    prev = ((struct node_t *)get_pointer(Q->Head.both))->prev;
     while (get_pointer(curr.both) != get_pointer(Q->Tail.both)){
-        printf("%d \n",(get_pointer(curr.both))->value);
+        printf("%d \n",((struct node_t *)get_pointer(curr.both))->value);
         curr = prev;
-        prev = (get_pointer(curr.both)) ->prev;
+        prev = ((struct node_t *)get_pointer(curr.both)) ->prev;
     }
-    printf("%d ",(get_pointer(curr.both))->value);
+    printf("%d ",((struct node_t *)get_pointer(curr.both))->value);
     printf("\n");
 
 }
@@ -246,13 +236,12 @@ int main(int argc,char * argv[]){
 
 	#pragma omp parallel for num_threads(num_threads) shared(Q) private(res,val,i,j,c,timer,k) reduction(+:total_time) reduction(+:sum) 
 	for(i=0;i<num_threads;i++){
-         
+        c=50;
         timer=timer_init();
         timer_start(timer);
         sum=0;
          for (j=0;j<count/num_threads;j++){
                 enqueue(Q,i);
-                c=rand()%1000;
                 sum+=c;
                 for(k=0;k<c;k++);
                 res = dequeue(Q,&val);
@@ -274,8 +263,8 @@ int main(int argc,char * argv[]){
    // printf("new total_time %lf\n",total_time);
    // printf("new sum %ld\n",sum);
     double avg_total_time=total_time/(double)num_threads;
-    
-    long int avg_sum=sum/num_threads;
+    printf( " avg total time %lf\n",avg_total_time);
+/*    long int avg_sum=sum/num_threads;
    // printf("avg sum %ld\n",avg_sum);
     timer_tt * timer2=timer_init();
     timer_start(timer2);
@@ -285,8 +274,8 @@ int main(int argc,char * argv[]){
    // printf("average delay time %lf\n",avg_delay);
     //printf("threads number %d  time %lf\n",omp_get_thread_num(),total_time);
          
-
-    printf("average time %lf\n",avg_total_time - avg_delay);
+*/
+    //printf("average time %lf\n",avg_total_time - avg_delay);
     /*timer_stop(glob_timer);
     printf("global time %lf\n",timer_report_sec(glob_timer));
 
@@ -296,7 +285,7 @@ int main(int argc,char * argv[]){
     timer_stop(glob_timer);
     printf("test delay %lf/n",timer_report_sec(glob_timer));
     */
-	printqueue(Q);
+	//printqueue(Q);
     //timer_stop(timer);
     //printf("num_threasd %d  enq-deqs total %d \n",num_threads,count);
     //printf("Total time  %lf \n",time_res);
