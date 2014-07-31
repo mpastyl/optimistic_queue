@@ -234,6 +234,9 @@ int main(int argc,char * argv[]){
     double total_time=0;
 
 
+    int temp;
+
+    for(i=0;i<10;i++) enqueue(Q,i);
 	#pragma omp parallel for num_threads(num_threads) shared(Q) private(res,val,i,j,c,timer,k) reduction(+:total_time) reduction(+:sum) 
 	for(i=0;i<num_threads;i++){
         c=50;
